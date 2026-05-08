@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>设备监控系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .device-card { transition: all 0.3s ease; margin-bottom: 1rem; }
+        .device-card:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.1); transform: translateY(-2px); }
+        .status-online { border-left: 4px solid #28a745; }
+        .status-offline { border-left: 4px solid #dc3545; }
+        .status-warning { border-left: 4px solid #ffc107; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-heartbeat"></i> 设备监控系统
+            </a>
+            <div class="navbar-nav">
+                <a class="nav-link active" href="#">仪表板</a>
+                <a class="nav-link" href="temperature_test.html">温度测试</a>
+                <a class="nav-link" href="memory_analysis.html">内存分析</a>
+                <a class="nav-link" href="alerts.html">告警详情</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- 统计卡片 (保留点击跳转) -->
+        <div class="row mb-4">
+            <div class="col-md-3"><div class="card text-white bg-primary"><div class="card-body"><div class="d-flex justify-content-between"><div><h4 id="total-devices">0</h4><p>总设备数</p></div><i class="fas fa-server fa-2x"></i></div></div></div></div>
+            <div class="col-md-3"><div class="card text-white bg-success"><div class="card-body"><div class="d-flex justify-content-between"><div><h4 id="online-devices">0</h4><p>在线设备</p></div><i class="fas fa-plug fa-2x"></i></div></div></div></div>
+            <div class="col-md-3">
+                <div class="card text-white bg-warning" onclick="window.location.href='alerts.html'" style="cursor: pointer;">
+                    <div class="card-body"><div class="d-flex justify-content-between"><div><h4 id="warning-devices">0</h4><p>告警设备 (点击查看)</p></div><i class="fas fa-exclamation-triangle fa-2x"></i></div></div>
+                </div>
+            </div>
+            <div class="col-md-3"><div class="card text-white bg-danger"><div class="card-body"><div class="d-flex justify-content-between"><div><h4 id="offline-devices">0</h4><p>离线设备</p></div><i class="fas fa-times-circle fa-2x"></i></div></div></div></div>
+        </div>
+
+        <!-- 设备列表 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">设备监控</h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary refresh-btn" onclick="refreshData()"><i class="fas fa-sync-alt"></i> 刷新</button>
+                            <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#scanDeviceModal"><i class="fas fa-radar"></i> 搜索设备</button>
+                            <button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#addDeviceModal"><i class="fas fa-plus"></i> 添加设备</button>
+                            <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#batchEditModal"><i class="fas fa-edit"></i> 批量修改</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="batchDeleteDevices()"><i class="fas fa-trash"></i> 批量删除</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="devices-container" class="row"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加设备模态框 (修改点：产品线) -->
+    <div class="modal fade" id="addDeviceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">添加设备</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <form id="addDeviceForm">
+                        <div class="mb-3">
+                            <label class="form-label">IP地址</label>
+                            <input type="text" class="form-control" id="deviceIp" required placeholder="例如：192.168.1.100">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">产品线</label>
+                            <!-- 【修改】ID改为 productLine，选项改为产品线 -->
+                            <select class="form-select" id="productLine" required>
+                                <option value="车行产品线">车行产品线</option>
+                                <option value="人行产品线">人行产品线</option>
+                                <option value="车位产品线">车位产品线</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">用户名</label>
+                            <input type="text" class="form-control" id="deviceUsername" value="root">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">密码</label>
+                            <input type="password" class="form-control" id="devicePassword" value="Jsst_168">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="submitDevice()">添加</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 修改设备模态框 -->
+    <div class="modal fade" id="editDeviceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">修改设备</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <form id="editDeviceForm">
+                        <input type="hidden" id="editDeviceIp">
+                        <div class="mb-3">
+                            <label class="form-label">IP地址</label>
+                            <input type="text" class="form-control" id="editDeviceIpDisplay" disabled>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">产品线</label>
+                            <select class="form-select" id="editProductLine" required>
+                                <option value="车行产品线">车行产品线</option>
+                                <option value="人行产品线">人行产品线</option>
+                                <option value="车位产品线">车位产品线</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">用户名</label>
+                            <input type="text" class="form-control" id="editDeviceUsername">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">密码</label>
+                            <input type="password" class="form-control" id="editDevicePassword">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="submitEditDevice()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量修改产品线模态框 -->
+    <div class="modal fade" id="batchEditModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title"><i class="fas fa-edit"></i> 批量修改产品线</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">选择要修改的产品线</label>
+                        <select class="form-select" id="batchProductLine" required>
+                            <option value="">-- 请选择 --</option>
+                            <option value="车行产品线">车行产品线</option>
+                            <option value="人行产品线">人行产品线</option>
+                            <option value="车位产品线">车位产品线</option>
+                            <option value="其他">其他</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="selectAllEditDevices">
+                            <label class="form-check-label" for="selectAllEditDevices">全选所有设备</label>
+                        </div>
+                    </div>
+                    <div id="batchEditDeviceList" style="max-height: 300px; overflow-y: auto;">
+                        <div class="text-center text-muted py-3">加载中...</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-warning" onclick="submitBatchEdit()">
+                        <i class="fas fa-edit"></i> 批量修改
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 搜索设备模态框（简化版） -->
+    <div class="modal fade" id="scanDeviceModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title"><i class="fas fa-radar"></i> 局域网搜索设备</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">网段</label>
+                        <input type="text" class="form-control" id="scanSubnet" placeholder="例如：192.168.5" value="192.168.5">
+                        <small class="text-muted">只填网段前缀，如 192.168.5</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="startScan()">
+                        <i class="fas fa-search"></i> 开始搜索
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const API = {
+            DATA: '/api/monitor/data',
+            ADD: '/api/device/add',
+            UPDATE: '/api/device/update',
+            BATCH_UPDATE: '/api/device/batch_update',
+            DELETE: '/api/device/delete/',
+            BATCH_DELETE: '/api/device/batch_delete',
+            CHECK_NOW: '/api/monitor/check_now',
+            SCAN: '/api/scan/network'
+        };
+
+        let scannedDevices = [];
+
+        // 前端本地缓存
+        let localCache = {
+            data: null,
+            timestamp: 0,
+            ttl: 10000  // 本地缓存10秒
+        };
+
+        // 加载状态
+        let isLoading = false;
+
+        function loadMonitoringData(forceRefresh = false) {
+            const now = Date.now();
+
+            // 如果正在加载中，且不是强制刷新，则跳过
+            if (isLoading && !forceRefresh) {
+                return;
+            }
+
+            // 检查本地缓存是否有效（优先显示缓存，实现零等待）
+            if (!forceRefresh && localCache.data && (now - localCache.timestamp) < localCache.ttl) {
+                renderDevices(localCache.data);
+                updateStats(localCache.data);
+                return;
+            }
+
+            // 显示加载中状态（保留现有UI）
+            const container = document.getElementById('devices-container');
+            if (container && container.children.length === 0) {
+                container.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
+            }
+
+            isLoading = true;
+            fetch(API.DATA)
+                .then(res => res.json())
+                .then(data => {
+                    // 更新本地缓存
+                    localCache.data = data;
+                    localCache.timestamp = now;
+
+                    renderDevices(data);
+                    updateStats(data);
+                })
+                .catch(err => {
+                    console.error(err);
+                    // 如果请求失败，尝试使用缓存
+                    if (localCache.data) {
+                        renderDevices(localCache.data);
+                        updateStats(localCache.data);
+                    }
+                })
+                .finally(() => {
+                    isLoading = false;
+                });
+        }
+
+        // 手动刷新：强制从服务器获取
+        function refreshData() {
+            localCache.data = null;  // 清除本地缓存
+            loadMonitoringData(true);
+        }
+
+        // ========== 搜索设备功能（异步）==========
+        let scanPollingTimer = null;
+
+        // 搜索设备 - 异步后台扫描
+        function startScan() {
+            const subnet = document.getElementById('scanSubnet').value.trim();
+
+            if (!subnet) {
+                alert('请输入网段');
+                return;
+            }
+
+            // 验证网段格式
+            const parts = subnet.split('.');
+            if (parts.length !== 3) {
+                alert('网段格式错误，应为 x.x.x 格式');
+                return;
+            }
+
+            // 关闭弹窗
+            const modal = bootstrap.Modal.getInstance(document.getElementById('scanDeviceModal'));
+            if (modal) modal.hide();
+
+            // 显示后台搜索提示
+            showToast('正在后台搜索设备，扫描完成后将自动添加...');
+
+            // 自动扫描1-254
+            fetch(API.SCAN, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    subnet: subnet,
+                    start_ip: 1,
+                    end_ip: 254
+                })
+            }).then(res => res.json()).then(data => {
+                if (!data.success) {
+                    showToast('搜索失败: ' + (data.msg || ''));
+                    return;
+                }
+
+                // 如果已有监控设备，直接显示
+                if (data.source === 'monitored') {
+                    showToast(`找到 ${data.count} 个已监控设备`);
+                    setTimeout(() => loadMonitoringData(true), 500);
+                    return;
+                }
+
+                // 后台扫描任务
+                const taskId = data.task_id;
+                if (taskId) {
+                    pollScanTask(taskId);
+                }
+            }).catch(err => {
+                console.error(err);
+                showToast('搜索请求失败');
+            });
+        }
+
+        // 轮询扫描任务状态
+        function pollScanTask(taskId) {
+            if (scanPollingTimer) clearInterval(scanPollingTimer);
+
+            let pollCount = 0;
+            scanPollingTimer = setInterval(() => {
+                pollCount++;
+
+                fetch('/api/scan/task/' + taskId)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'completed') {
+                            clearInterval(scanPollingTimer);
+                            scanPollingTimer = null;
+
+                            const deviceCount = data.devices ? data.devices.length : 0;
+                            const addedCount = data.added_count || 0;
+
+                            if (deviceCount > 0) {
+                                showToast(`搜索完成，发现 ${deviceCount} 台设备，已自动添加 ${addedCount} 台到监控`);
+                            } else {
+                                showToast('未发现新的捷顺设备');
+                            }
+
+                            // 刷新设备列表
+                            setTimeout(() => loadMonitoringData(true), 1000);
+                        } else if (data.status === 'failed') {
+                            clearInterval(scanPollingTimer);
+                            scanPollingTimer = null;
+                            showToast('搜索失败: ' + (data.error || '未知错误'));
+                        } else if (pollCount >= 60) { // 最多轮询60次（5分钟）
+                            clearInterval(scanPollingTimer);
+                            scanPollingTimer = null;
+                            showToast('搜索超时，请稍后查看结果');
+                        }
+                    })
+                    .catch(err => {
+                        console.error(err);
+                    });
+            }, 5000); // 每5秒检查一次
+        }
+
+        function renderScannedDevices() {
+            const container = document.getElementById('scanResults');
+            let html = '<div class="table-responsive"><table class="table table-sm table-hover"><thead><tr><th></th><th>IP地址</th><th>状态</th></tr></thead><tbody>';
+
+            scannedDevices.forEach((device, index) => {
+                html += `
+                    <tr>
+                        <td><input class="form-check-input device-checkbox" type="checkbox" value="${device.ip}" checked></td>
+                        <td>${device.ip}</td>
+                        <td><span class="badge bg-success">在线</span></td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table></div>';
+            container.innerHTML = html;
+        }
+
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAllDevices').checked;
+            document.querySelectorAll('.device-checkbox').forEach(cb => {
+                cb.checked = selectAll;
+            });
+        }
+
+        function addSelectedDevices() {
+            const checkboxes = document.querySelectorAll('.device-checkbox:checked');
+            const ips = Array.from(checkboxes).map(cb => cb.value);
+
+            if (ips.length === 0) {
+                alert('请选择要添加的设备');
+                return;
+            }
+
+            const btn = document.getElementById('addSelectedBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 添加中...';
+
+            let added = 0;
+            let failed = 0;
+            let completed = 0;
+
+            ips.forEach(ip => {
+                fetch(API.ADD, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        ip: ip,
+                        product_line: '其他',
+                        username: 'root',
+                        password: 'Jsst_168'
+                    })
+                }).then(res => res.json()).then(data => {
+                    if (data.success) added++;
+                    else {
+                        failed++;
+                        console.log(`设备 ${ip} 添加失败: ${data.msg}`);
+                    }
+                }).catch(err => {
+                    failed++;
+                    console.error(`设备 ${ip} 添加异常:`, err);
+                }).finally(() => {
+                    completed++;
+                    if (completed === ips.length) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-plus"></i> 添加选中设备';
+                        alert(`添加完成: 成功 ${added} 个${failed > 0 ? ', 失败 ' + failed + ' 个（可能已存在）' : ''}`);
+                        if (added > 0) {
+                            bootstrap.Modal.getInstance(document.getElementById('scanDeviceModal')).hide();
+                            loadMonitoringData();
+                        }
+                    }
+                });
+            });
+        }
+        // ========== 搜索设备功能结束 ==========
+
+        function submitDevice() {
+            const payload = {
+                ip: document.getElementById('deviceIp').value,
+                // 【修改】发送 product_line 参数
+                product_line: document.getElementById('productLine').value,
+                username: document.getElementById('deviceUsername').value,
+                password: document.getElementById('devicePassword').value
+            };
+
+            if (!payload.ip) {
+                alert('请输入IP地址');
+                return;
+            }
+
+            // 乐观更新：关闭弹窗并显示成功提示
+            bootstrap.Modal.getInstance(document.getElementById('addDeviceModal')).hide();
+            showToast('设备添加中...');
+
+            fetch(API.ADD, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            }).then(res => res.json()).then(data => {
+                if (data.success) {
+                    showToast('设备添加成功');
+                    document.getElementById('addDeviceForm').reset();
+                    // 延迟刷新数据，确保后端处理完成
+                    setTimeout(loadMonitoringData, 500);
+                } else {
+                    alert('添加失败: ' + (data.msg || ''));
+                    loadMonitoringData();
+                }
+            }).catch(err => {
+                console.error('添加设备异常:', err);
+                alert('添加请求失败');
+                loadMonitoringData();
+            });
+        }
+
+        // ========== 修改设备功能 ==========
+        function editDevice(ip, productLine, username, password) {
+            document.getElementById('editDeviceIp').value = ip;
+            document.getElementById('editDeviceIpDisplay').value = ip;
+            document.getElementById('editProductLine').value = productLine || '其他';
+            document.getElementById('editDeviceUsername').value = username || 'root';
+            document.getElementById('editDevicePassword').value = password || '';
+            new bootstrap.Modal(document.getElementById('editDeviceModal')).show();
+        }
+
+        function submitEditDevice() {
+            const ip = document.getElementById('editDeviceIp').value;
+            const payload = {
+                ip: ip,
+                product_line: document.getElementById('editProductLine').value,
+                username: document.getElementById('editDeviceUsername').value,
+                password: document.getElementById('editDevicePassword').value
+            };
+
+            // 乐观更新：关闭弹窗
+            bootstrap.Modal.getInstance(document.getElementById('editDeviceModal')).hide();
+            showToast('设备更新中...');
+
+            fetch(API.UPDATE, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            }).then(res => res.json()).then(data => {
+                if (data.success) {
+                    showToast('设备更新成功');
+                    // 乐观更新：直接修改当前页面的设备信息
+                    updateDeviceCard(ip, payload);
+                } else {
+                    alert('修改失败: ' + (data.msg || ''));
+                    loadMonitoringData();
+                }
+            }).catch(err => {
+                console.error('修改设备异常:', err);
+                alert('修改请求失败');
+                loadMonitoringData();
+            });
+        }
+
+        // 乐观更新：直接修改设备卡片内容，无需刷新
+        function updateDeviceCard(ip, data) {
+            const card = document.querySelector(`[data-ip="${ip}"]`);
+            if (!card) {
+                loadMonitoringData();
+                return;
+            }
+
+            // 更新产品线
+            const productLineBadge = card.querySelector('.badge.bg-light');
+            if (productLineBadge) {
+                productLineBadge.innerText = data.product_line || '未分类';
+            }
+
+            // 显示成功提示
+            showToast('设备更新成功');
+        }
+        // ========== 修改设备功能结束 ==========
+
+        // ========== 批量修改功能 ==========
+        function loadBatchEditDevices() {
+            fetch(API.DATA).then(res => res.json()).then(data => {
+                const container = document.getElementById('batchEditDeviceList');
+                const devices = Object.keys(data);
+
+                if (devices.length === 0) {
+                    container.innerHTML = '<div class="text-center text-muted py-3">暂无设备</div>';
+                    return;
+                }
+
+                let html = '<div class="table-responsive"><table class="table table-sm table-hover"><thead><tr><th></th><th>IP地址</th><th>当前产品线</th></tr></thead><tbody>';
+                devices.forEach(ip => {
+                    const deviceData = data[ip];
+                    html += `
+                        <tr>
+                            <td><input class="form-check-input batch-device-checkbox" type="checkbox" value="${ip}" checked></td>
+                            <td>${ip}</td>
+                            <td><span class="badge bg-secondary">${deviceData.product_line || '未分类'}</span></td>
+                        </tr>
+                    `;
+                });
+                html += '</tbody></table></div>';
+                container.innerHTML = html;
+            });
+        }
+
+        document.getElementById('batchEditModal').addEventListener('shown.bs.modal', loadBatchEditDevices);
+
+        document.getElementById('selectAllEditDevices').addEventListener('change', function() {
+            document.querySelectorAll('.batch-device-checkbox').forEach(cb => {
+                cb.checked = this.checked;
+            });
+        });
+
+        function submitBatchEdit() {
+            const productLine = document.getElementById('batchProductLine').value;
+            if (!productLine) {
+                alert('请选择要修改的产品线');
+                return;
+            }
+
+            const checkboxes = document.querySelectorAll('.batch-device-checkbox:checked');
+            const ips = Array.from(checkboxes).map(cb => cb.value);
+
+            if (ips.length === 0) {
+                alert('请选择要修改的设备');
+                return;
+            }
+
+            // 乐观更新：关闭弹窗并更新UI
+            bootstrap.Modal.getInstance(document.getElementById('batchEditModal')).hide();
+            showToast('批量修改中...');
+
+            // 乐观更新：直接修改页面上的产品线标签
+            ips.forEach(ip => {
+                const card = document.querySelector(`[data-ip="${ip}"]`);
+                if (card) {
+                    const badge = card.querySelector('.badge.bg-light');
+                    if (badge) badge.innerText = productLine;
+                }
+            });
+
+            fetch(API.BATCH_UPDATE, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ips: ips, product_line: productLine })
+            }).then(res => res.json()).then(data => {
+                if (data.success) {
+                    showToast(`批量修改成功，共修改 ${data.count} 个设备`);
+                } else {
+                    alert('批量修改失败: ' + (data.msg || ''));
+                    loadMonitoringData();
+                }
+            }).catch(err => {
+                console.error('批量修改异常:', err);
+                alert('修改请求失败');
+                loadMonitoringData();
+            });
+        }
+        // ========== 批量修改功能结束 ==========
+
+        // 存储当前设备数据，用于乐观更新回滚
+        let currentDevicesData = {};
+
+        // ========== 乐观更新：删除单个设备 ==========
+        function deleteDevice(ip) {
+            if (!confirm(`确定删除 ${ip} 吗？`)) return;
+
+            // 乐观更新：立即从UI移除设备
+            const card = document.querySelector(`[data-ip="${ip}"]`);
+            if (card) {
+                card.style.transition = 'all 0.3s ease';
+                card.style.opacity = '0';
+                card.style.transform = 'scale(0.8)';
+                setTimeout(() => card.remove(), 300);
+            }
+
+            // 更新统计数据
+            updateStatsAfterDelete(ip);
+
+            // 后台发送删除请求
+            fetch(API.DELETE + ip, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.success) {
+                        // 失败回滚：重新加载数据
+                        alert('删除失败: ' + (data.msg || ''));
+                        loadMonitoringData();
+                    }
+                })
+                .catch(err => {
+                    console.error('删除请求异常:', err);
+                    alert('删除请求失败');
+                    loadMonitoringData();
+                });
+        }
+
+        // ========== 乐观更新：批量删除设备 ==========
+        function batchDeleteDevices() {
+            const checkboxes = document.querySelectorAll('.device-checkbox:checked');
+            const ips = Array.from(checkboxes).map(cb => cb.value);
+
+            if (ips.length === 0) {
+                alert('请先选择要删除的设备');
+                return;
+            }
+
+            if (!confirm(`确定删除选中的 ${ips.length} 个设备吗？此操作不可恢复！`)) return;
+
+            // 乐观更新：立即从UI移除选中设备
+            ips.forEach(ip => {
+                const card = document.querySelector(`[data-ip="${ip}"]`);
+                if (card) {
+                    card.style.transition = 'all 0.3s ease';
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.8)';
+                    setTimeout(() => card.remove(), 300);
+                }
+            });
+
+            // 更新统计数据
+            updateStatsAfterBatchDelete(ips);
+
+            // 后台发送批量删除请求
+            fetch(API.BATCH_DELETE, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ips: ips })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    // 成功：显示轻提示
+                    showToast(`批量删除成功，共删除 ${data.deleted_count} 个设备`);
+                } else {
+                    // 失败回滚
+                    alert('批量删除失败: ' + (data.msg || ''));
+                    loadMonitoringData();
+                }
+            })
+            .catch(err => {
+                console.error('批量删除请求异常:', err);
+                alert('删除请求失败');
+                loadMonitoringData();
+            });
+        }
+
+        // 更新统计（删除单个后）
+        function updateStatsAfterDelete(ip) {
+            const total = parseInt(document.getElementById('total-devices').innerText) - 1;
+            const online = parseInt(document.getElementById('online-devices').innerText);
+            const offline = parseInt(document.getElementById('offline-devices').innerText);
+            const warning = parseInt(document.getElementById('warning-devices').innerText);
+
+            // 简单判断删除的是在线还是离线
+            const card = document.querySelector(`[data-ip="${ip}"]`);
+            let newOnline = online, newOffline = offline, newWarning = warning;
+            if (card) {
+                // 已经被移除，通过之前的状态判断（这里简化处理，直接重新计算）
+            }
+
+            document.getElementById('total-devices').innerText = Math.max(0, total);
+            document.getElementById('online-devices').innerText = Math.max(0, newOnline);
+            document.getElementById('offline-devices').innerText = Math.max(0, newOffline);
+            document.getElementById('warning-devices').innerText = Math.max(0, newWarning);
+        }
+
+        // 更新统计（批量删除后）
+        function updateStatsAfterBatchDelete(ips) {
+            const total = Math.max(0, parseInt(document.getElementById('total-devices').innerText) - ips.length);
+            document.getElementById('total-devices').innerText = total;
+            // 在线/离线/告警数量简化处理，下次刷新会自动校正
+        }
+
+        // 显示轻提示
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = 'position-fixed top-50 start-50 translate-middle badge bg-success fs-6';
+            toast.style.zIndex = '9999';
+            toast.style.padding = '15px 25px';
+            toast.innerText = message;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.transition = 'opacity 0.3s';
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        }
+
+        function refreshSingleDevice(ip) {
+            fetch(API.CHECK_NOW, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ip: ip })
+            }).then(() => alert('已触发立即检查'));
+        }
+
+        function updateStats(data) {
+            const list = Object.values(data);
+            let online = 0, offline = 0, warning = 0;
+            list.forEach(d => {
+                if (d.status === 'online') {
+                    online++;
+                    const rec = d.latest_record || {};
+                    if ((rec.cpu_usage > 90) || (rec.new_core_files && rec.new_core_files.length > 0)) warning++;
+                } else offline++;
+            });
+            document.getElementById('total-devices').innerText = list.length;
+            document.getElementById('online-devices').innerText = online;
+            document.getElementById('warning-devices').innerText = warning;
+            document.getElementById('offline-devices').innerText = offline;
+        }
+
+        function renderDevices(data) {
+            const container = document.getElementById('devices-container');
+            if (Object.keys(data).length === 0) {
+                container.innerHTML = `<div class="col-12 text-center py-5">暂无设备</div>`;
+                return;
+            }
+
+            let html = '';
+            for (const [ip, deviceData] of Object.entries(data)) {
+                const rec = deviceData.latest_record || {};
+                const mem = rec.memory_usage || 0;
+                const cpu = rec.cpu_usage || 0;
+                const cores = rec.new_core_files ? rec.new_core_files.length : 0;
+                const thermal = rec.thermal_zones || [];
+
+                let statusClass = deviceData.status === 'online' ? 'status-online' : 'status-offline';
+                if (deviceData.status === 'online' && (cpu > 90 || cores > 0)) statusClass = 'status-warning';
+
+                // 热区温度显示
+                let thermalHtml = '';
+                if (thermal.length > 0) {
+                    thermalHtml = '<div class="mt-2">';
+                    thermal.forEach(t => {
+                        const tempVal = parseFloat(t.temp);
+                        const tempClass = tempVal > 80 ? 'text-danger' : (tempVal > 60 ? 'text-warning' : 'text-muted');
+                        thermalHtml += `<span class="badge bg-outline-secondary ${tempClass} me-1"><i class="fas fa-thermometer-half"></i> ${t.zone}: ${tempVal.toFixed(1)}°C</span>`;
+                    });
+                    thermalHtml += '</div>';
+                }
+
+                html += `
+                <div class="col-md-6 col-lg-4" data-ip="${ip}">
+                    <div class="card device-card ${statusClass}">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <input class="form-check-input me-2 device-checkbox" type="checkbox" value="${ip}">
+                                    <h5 class="card-title d-inline">${ip}</h5>
+                                </div>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-link text-secondary" data-bs-toggle="dropdown"><i class="fas fa-ellipsis-v"></i></button>
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="#" onclick="editDevice('${ip}', '${deviceData.product_line || ''}', '${deviceData.username || ''}', '${deviceData.password || ''}')">编辑</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="refreshSingleDevice('${ip}')">立即检查</a></li>
+                                        <li><a class="dropdown-item" href="device_detail.html?ip=${ip}" target="_blank">查看详情</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-danger" href="#" onclick="deleteDevice('${ip}')">删除</a></li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- 【修改】显示产品线 -->
+                            <p class="text-muted small">
+                                <span class="badge bg-light text-dark border">${deviceData.product_line || '未分类'}</span>
+                            </p>
+
+                            <div class="mb-2 small">
+                                <div class="d-flex justify-content-between"><span>内存</span><span>${mem.toFixed(1)}%</span></div>
+                                <div class="progress" style="height:6px"><div class="progress-bar" style="width:${mem}%"></div></div>
+                            </div>
+                            <div class="mb-2 small">
+                                <div class="d-flex justify-content-between"><span>CPU</span><span>${cpu.toFixed(1)}%</span></div>
+                                <div class="progress" style="height:6px"><div class="progress-bar bg-success" style="width:${cpu}%"></div></div>
+                            </div>
+                            ${thermalHtml}
+                            ${cores > 0 ? `<span class="badge bg-danger">Core文件: ${cores}</span>` : ''}
+                            <div class="text-muted small mt-2">最后更新: ${deviceData.last_check || 'N/A'}</div>
+                        </div>
+                    </div>
+                </div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadMonitoringData();
+            setInterval(refreshData, 30000);
+        });
+    </script>
+</body>
+</html>

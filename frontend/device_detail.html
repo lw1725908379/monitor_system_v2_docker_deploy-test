@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>设备详情 - 设备监控系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .process-table th { background-color: #f8f9fa; }
+        .alert-process { background-color: #fff3cd; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-heartbeat"></i> 设备监控系统
+            </a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="index.html">仪表板</a>
+                <a class="nav-link" href="temperature_test.html">温度测试</a>
+                <a class="nav-link" href="memory_analysis.html">内存分析</a>
+                <a class="nav-link" href="reports.html">报表</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row mb-3">
+            <div class="col-12">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="index.html">首页</a></li>
+                        <li class="breadcrumb-item active" id="device-ip-breadcrumb">设备详情</li>
+                    </ol>
+                </nav>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-server me-2"></i>
+                            <span id="device-title">设备详情</span>
+                        </h5>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadDeviceData()">
+                            <i class="fas fa-sync-alt"></i> 刷新
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="device-content">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status"></div>
+                                <p class="mt-2">正在加载...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加风险进程模态框 -->
+    <div class="modal fade" id="addRiskProcessModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">添加风险进程监控</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addRiskProcessForm">
+                        <div class="mb-3">
+                            <label class="form-label">进程名 (Process Name)</label>
+                            <input type="text" class="form-control" id="processName" required placeholder="例如：nginx">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">内存阈值 (MB)</label>
+                            <input type="number" class="form-control" id="allocatedMemory" required placeholder="例如：1024">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="submitRiskProcess()">添加</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const deviceIp = urlParams.get('ip');
+
+        const API = {
+            GET_DETAIL: `/api/monitor/device/${deviceIp}`,
+            ADD_RISK: `/api/device/risk_process/add`,
+            DEL_RISK: `/api/device/risk_process/delete/`
+        };
+
+        if (!deviceIp) {
+            document.getElementById('device-content').innerHTML = '<div class="alert alert-danger">无效的 IP 地址</div>';
+        } else {
+            document.getElementById('device-ip-breadcrumb').innerText = deviceIp;
+            document.getElementById('device-title').innerText = `设备详情 - ${deviceIp}`;
+            loadDeviceData();
+            setInterval(loadDeviceData, 30000);
+        }
+
+        function loadDeviceData() {
+            fetch(API.GET_DETAIL)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) throw new Error(data.error);
+                    renderDeviceDetail(data);
+                })
+                .catch(err => {
+                    console.error(err);
+                });
+        }
+
+        function renderDeviceDetail(data) {
+            const info = data.device_info || {};
+            const detail = data.device_detail || {};
+            const rec = data.latest_record || {};
+            const risks = data.risk_processes || [];
+
+            const cpu = rec.cpu_usage || 0;
+            const mem = rec.memory_usage || 0;
+            const thermal = rec.thermal_zones || [];
+            const statusBadge = data.status === 'online'
+                ? '<span class="badge bg-success">在线</span>'
+                : '<span class="badge bg-danger">离线</span>';
+
+            let html = `
+                <div class="row">
+                    <!-- 基本信息 -->
+                    <div class="col-md-6">
+                        <h5><i class="fas fa-info-circle me-2"></i>基础信息</h5>
+                        <table class="table table-sm table-borderless">
+                            <tr><td width="30%">IP:</td><td>${info.ip}</td></tr>
+
+                            <!-- 【修改】标签改为产品线，字段改为 product_line -->
+                            <tr><td>产品线:</td><td><span class="badge bg-light text-dark border">${info.product_line || '未分类'}</span></td></tr>
+
+                            <tr><td>状态:</td><td>${statusBadge}</td></tr>
+                            <tr><td>MAC:</td><td>${detail.mac || '未知'}</td></tr>
+                            <tr><td>CPU ID:</td><td>${detail.cpu_id || '未知'}</td></tr>
+                            <tr><td>项目编号:</td><td>${detail.project_number || '未知'}</td></tr>
+                        </table>
+                    </div>
+                    <!-- 资源监控 -->
+                    <div class="col-md-6">
+                        <h5><i class="fas fa-chart-pie me-2"></i>实时资源</h5>
+                        <div class="mb-3">
+                            <label>CPU 使用率: ${cpu.toFixed(1)}%</label>
+                            <div class="progress"><div class="progress-bar bg-success" style="width: ${cpu}%"></div></div>
+                        </div>
+                        <div class="mb-3">
+                            <label>内存 使用率: ${mem.toFixed(1)}%</label>
+                            <div class="progress"><div class="progress-bar" style="width: ${mem}%"></div></div>
+                        </div>
+                        <!-- 热区温度 -->
+                        ${thermal.length > 0 ? `
+                        <div class="mb-3">
+                            <label><i class="fas fa-thermometer-half me-1"></i>热区温度</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                ${thermal.map(t => {
+                                    const tempVal = parseFloat(t.temp);
+                                    const badgeClass = tempVal > 80 ? 'bg-danger' : (tempVal > 60 ? 'bg-warning' : 'bg-secondary');
+                                    return `<span class="badge ${badgeClass}"><i class="fas fa-thermometer-half"></i> ${t.zone}: ${tempVal.toFixed(1)}°C</span>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <!-- 告警栏 -->
+                <div class="row mt-3">
+                    <div class="col-12">
+                        ${(rec.new_core_files && rec.new_core_files.length > 0) ?
+                            `<div class="alert alert-danger"><i class="fas fa-bug"></i> 发现 Core 文件: ${rec.new_core_files.length} 个</div>` : ''}
+                        ${(rec.high_memory_processes && rec.high_memory_processes.length > 0) ?
+                            `<div class="alert alert-warning"><i class="fas fa-memory"></i> 发现高内存进程</div>` : ''}
+                    </div>
+                </div>
+
+                <!-- 风险进程管理 -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h5><i class="fas fa-tasks me-2"></i>风险进程监控</h5>
+                            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addRiskProcessModal">
+                                <i class="fas fa-plus"></i> 添加
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-striped process-table">
+                                <thead>
+                                    <tr>
+                                        <th>进程名</th>
+                                        <th>PID</th>
+                                        <th>限制内存(MB)</th>
+                                        <th>当前内存(MB)</th>
+                                        <th>状态</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${renderRiskRows(risks)}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('device-content').innerHTML = html;
+        }
+
+        function renderRiskRows(risks) {
+            if (!risks || risks.length === 0) return '<tr><td colspan="6" class="text-center text-muted">暂无监控进程</td></tr>';
+
+            return risks.map(r => {
+                // 判断是否为自动发现的 Top 进程
+                const isAuto = (r.type === 'auto');
+
+                // 标记默认显示进程（不能删除）
+                const nameBadge = isAuto
+                    ? `<span class="badge bg-info text-dark me-1" title="自动采集的 Top 高占用进程">Top</span>`
+                    : `<span class="badge bg-secondary me-1">配置</span>`;
+
+                // 内存超限或重启告警样式
+                let statusHtml = '';
+                const isRestart = r.alert_msg && r.alert_msg.includes('重启');
+                if (r.alert_triggered) {
+                    statusHtml = isRestart
+                        ? '<span class="badge bg-warning text-dark">进程重启</span>'
+                        : '<span class="badge bg-danger">内存超限</span>';
+                } else if (isAuto) {
+                    statusHtml = '<span class="badge bg-light text-dark">监控中</span>';
+                } else {
+                    statusHtml = '<span class="badge bg-success">正常</span>';
+                }
+
+                const usageText = r.memory_usage_percent > 0 ? `(${r.memory_usage_percent}%)` : '';
+
+                // 操作栏：自动发现的进程不能删除
+                const actionBtn = isAuto
+                    ? `<button class="btn btn-sm btn-outline-secondary" disabled style="cursor:not-allowed">自动</button>`
+                    : `<button class="btn btn-sm btn-danger" onclick="deleteRisk(${r.id})">删除</button>`;
+
+                return `
+                <tr class="${r.alert_triggered ? 'alert-process' : ''}">
+                    <td>${nameBadge} ${r.process_name}
+                        ${r.alert_msg ? '<br><small class="text-danger">' + r.alert_msg + '</small>' : ''}
+                    </td>
+                    <td>${r.pid || '-'}</td>
+                    <td>${r.allocated_memory}</td>
+                    <td>
+                        <strong>${r.current_memory}</strong> <small class="text-muted">${usageText}</small>
+                    </td>
+                    <td>${statusHtml}</td>
+                    <td>${actionBtn}</td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        function submitRiskProcess() {
+            const payload = {
+                ip: deviceIp,
+                process_name: document.getElementById('processName').value,
+                allocated_memory: parseInt(document.getElementById('allocatedMemory').value)
+            };
+
+            fetch(API.ADD_RISK, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('addRiskProcessModal')).hide();
+                    loadDeviceData();
+                    document.getElementById('addRiskProcessForm').reset();
+                } else {
+                    alert('添加失败');
+                }
+            });
+        }
+
+        function deleteRisk(id) {
+            if(!confirm('确认删除?')) return;
+            fetch(API.DEL_RISK + id, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.success) loadDeviceData();
+                    else alert('删除失败');
+                });
+        }
+    </script>
+</body>
+</html>

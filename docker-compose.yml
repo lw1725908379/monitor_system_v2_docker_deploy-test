@@ -1,0 +1,30 @@
+version: '3'
+
+services:
+  # Python 后端服务
+  backend:
+    build: .
+    container_name: monitor_backend
+    restart: always
+    volumes:
+      # 将宿主机的 storage 目录挂载进去，保证数据库不丢失
+      - ./storage:/app/storage
+      # 将宿主机的 logs 目录挂载进去，保证日志不丢失
+      - ./logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+
+  # Nginx 前端服务
+  nginx:
+    image: nginx:alpine
+    container_name: monitor_nginx
+    restart: always
+    ports:
+      - "8080:80"  # 左边是服务器端口(可改)，右边是容器端口，默认是8080
+    volumes:
+      # 挂载前端代码
+      - ./frontend:/usr/share/nginx/html
+      # 挂载配置文件
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - backend
