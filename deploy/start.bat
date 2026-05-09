@@ -1,11 +1,11 @@
 @echo off
 chcp 65001 >nul
-title 设备监控系统启动器
+title MonitorSystem V1.2 启动器
 
 cd /d "%~dp0.."
 
 echo ========================================
-echo   设备监控系统 - 启动中...
+echo   MonitorSystem V1.2 - 启动中...
 echo ========================================
 
 REM 检查 Python 是否安装

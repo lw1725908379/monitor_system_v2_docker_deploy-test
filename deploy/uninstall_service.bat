@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title 设备监控系统 - 卸载开机自启
+title MonitorSystem V1.2 - 卸载开机自启
 
 echo ========================================
-echo   设备监控系统 - 卸载开机自启
+echo   MonitorSystem V1.2 - 卸载开机自启
 echo ========================================
 
 REM 检查计划任务是否存在

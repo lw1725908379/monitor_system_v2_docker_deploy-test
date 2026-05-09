@@ -1,4 +1,4 @@
-# 设备监控系统 - Windows 部署指南
+# MonitorSystem V1.2 - Windows 部署指南
 
 ## 环境要求
 

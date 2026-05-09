@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title 设备监控系统 - 停止服务
+title MonitorSystem V1.2 - 停止服务
 
 echo ========================================
-echo   设备监控系统 - 停止中...
+echo   MonitorSystem V1.2 - 停止中...
 echo ========================================
 
 REM 查找并结束 Python 进程（只结束运行 run_server.py 的进程）

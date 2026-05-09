@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title 设备监控系统 - 安装开机自启
+title MonitorSystem V1.2 - 安装开机自启
 
 echo ========================================
-echo   设备监控系统 - 安装开机自启
+echo   MonitorSystem V1.2 - 安装开机自启
 echo ========================================
 
 REM 获取脚本所在目录的绝对路径

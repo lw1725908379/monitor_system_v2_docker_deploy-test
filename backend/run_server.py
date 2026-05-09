@@ -1,6 +1,11 @@
 import sys
 import os
 import argparse
+from datetime import datetime
+
+# 版本信息
+VERSION = "V1.2"
+BUILD_TIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 current_script_path = os.path.abspath(__file__)
 backend_dir = os.path.dirname(current_script_path)
@@ -15,7 +20,7 @@ app = create_app()
 
 if __name__ == '__main__':
     # 解析命令行参数
-    parser = argparse.ArgumentParser(description='设备监控系统')
+    parser = argparse.ArgumentParser(description='MonitorSystem V1.2')
     parser.add_argument('--port', type=int, default=8888, help='服务端口号 (默认: 8888)')
     args = parser.parse_args()
 
@@ -30,8 +35,13 @@ if __name__ == '__main__':
     else:
         port = args.port
 
-    print(f"Project Root added to path: {project_root}")
-    print("Starting Monitor System (Windows Native Mode)...")
+    print(f"=" * 50)
+    print(f"  MonitorSystem {VERSION}")
+    print(f"  Build: {BUILD_TIME}")
+    print(f"=" * 50)
+    print(f"Project Root: {project_root}")
+    print(f"Starting Monitor System (Windows Native Mode)...")
     print(f"API available at http://localhost:{port}/api/...")
     print(f"Web UI available at http://localhost:{port}/")
+    print(f"=" * 50)
     serve(app, host='0.0.0.0', port=port, threads=10)
