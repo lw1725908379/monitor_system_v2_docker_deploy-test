@@ -4,6 +4,7 @@ import statistics
 import numpy as np
 from datetime import datetime, timedelta
 from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from backend.shared.database import DatabaseManager
 from backend.app.core.config import Config
 
@@ -24,6 +25,9 @@ class MemoryAnalysisService:
         trend_cfg = ml_config.get('trend_threshold', {})
         self.LEAK_THRESHOLD = trend_cfg.get('leak', 1.0)
         self.DOWN_THRESHOLD = trend_cfg.get('down', -1.0)
+        # 评估配置
+        self.test_size_ratio = ml_config.get('test_size_ratio', 0.2)
+        self.enable_evaluation = ml_config.get('enable_evaluation', True)
 
     def run_analysis(self):
         """执行内存分析主流程"""
@@ -181,7 +185,29 @@ class MemoryAnalysisService:
                 trend_status = 'stable'
 
             # 4. 推荐值计算 - Ridge回归模型预测
-            recommended_memory = self._calculate_recommended_with_ridge(memory_data, trend_status)
+            recommended_memory, evaluation = self._calculate_recommended_with_ridge(memory_data, trend_status)
+
+            # 5. 保存评估结果到数据库
+            if evaluation:
+                self.db.save_model_evaluation(
+                    device_ip=device_ip,
+                    process_name=process_name,
+                    evaluation_date=datetime.now().strftime('%Y-%m-%d'),
+                    data_points=evaluation['data_points'],
+                    train_size=evaluation['train_size'],
+                    test_size=evaluation['test_size'],
+                    r2_score=evaluation['r2_score'],
+                    mae=evaluation['mae'],
+                    rmse=evaluation['rmse'],
+                    mape=evaluation['mape'],
+                    max_ae=evaluation['max_ae'],
+                    predicted_trend=evaluation['predicted_trend'],
+                    actual_trend=evaluation['actual_trend'],
+                    trend_correct=1 if evaluation['trend_correct'] else 0,
+                    recommended_memory=recommended_memory,
+                    predicted_max=evaluation['predicted_max'],
+                    actual_max=evaluation['actual_max']
+                )
 
             # 5. 告警消息
             alert_message = None
@@ -200,7 +226,8 @@ class MemoryAnalysisService:
                 'growth_rate': round(growth_rate, 4),
                 'trend_status': trend_status,
                 'recommended_memory': recommended_memory,
-                'alert_message': alert_message
+                'alert_message': alert_message,
+                'evaluation': evaluation
             }
 
         except Exception as e:
@@ -249,13 +276,13 @@ class MemoryAnalysisService:
         return slope
 
     def _calculate_recommended_with_ridge(self, memory_data, trend_status):
-        """使用Ridge回归模型预测推荐阈值"""
+        """使用Ridge回归模型预测推荐阈值，并进行模型评估"""
         if len(memory_data) < self.min_data_points:
             # 数据不足，使用简单统计方法
             memories = [d['memory_mb'] for d in memory_data]
             p95 = self._percentile(memories, 95)
             max_mem = max(memories)
-            return int(max(p95 * 1.2, max_mem * 1.1))
+            return int(max(p95 * 1.2, max_mem * 1.1)), None
 
         # 1. 构建特征矩阵
         memories = [d['memory_mb'] for d in memory_data]
@@ -272,11 +299,80 @@ class MemoryAnalysisService:
         X = np.column_stack([time_steps, ma, slopes, stds, recent_growth])
         y = np.array(memories)
 
-        # 2. 训练Ridge回归模型
+        # 评估指标初始化
+        evaluation_result = None
+        actual_max = max(memories)
+
+        # 2. 数据划分与模型评估
+        if self.enable_evaluation and n >= 10:
+            test_size = max(1, int(n * self.test_size_ratio))
+            train_size = n - test_size
+
+            X_train, X_test = X[:train_size], X[train_size:]
+            y_train, y_test = y[:train_size], y[train_size:]
+
+            # 训练评估模型
+            eval_model = Ridge(alpha=self.ridge_alpha)
+            eval_model.fit(X_train, y_train)
+
+            # 测试集预测
+            y_pred = eval_model.predict(X_test)
+
+            # 计算评估指标
+            mae = mean_absolute_error(y_test, y_pred)
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            r2 = r2_score(y_test, y_pred)
+
+            # 计算 MAPE（避免除零）
+            non_zero_mask = y_test != 0
+            if np.any(non_zero_mask):
+                mape = np.mean(np.abs((y_test[non_zero_mask] - y_pred[non_zero_mask]) / y_test[non_zero_mask])) * 100
+            else:
+                mape = 0
+
+            # 最大绝对误差
+            max_ae = np.max(np.abs(y_test - y_pred))
+
+            # 预测趋势 vs 实际趋势
+            predicted_trend = trend_status
+            # 计算测试集的实际趋势
+            if len(y_test) >= 2:
+                test_slope = (y_test[-1] - y_test[0]) / len(y_test)
+                if test_slope > self.LEAK_THRESHOLD:
+                    actual_trend = 'leak'
+                elif test_slope < self.DOWN_THRESHOLD:
+                    actual_trend = 'down'
+                else:
+                    actual_trend = 'stable'
+            else:
+                actual_trend = trend_status
+
+            trend_correct = predicted_trend == actual_trend
+
+            # 预测集最大值
+            predicted_max = max(y_pred) if len(y_pred) > 0 else actual_max
+
+            evaluation_result = {
+                'data_points': n,
+                'train_size': train_size,
+                'test_size': test_size,
+                'r2_score': round(r2, 4),
+                'mae': round(mae, 2),
+                'rmse': round(rmse, 2),
+                'mape': round(mape, 2),
+                'max_ae': round(max_ae, 2),
+                'predicted_trend': predicted_trend,
+                'actual_trend': actual_trend,
+                'trend_correct': trend_correct,
+                'predicted_max': round(predicted_max, 2),
+                'actual_max': round(actual_max, 2)
+            }
+
+        # 3. 全量训练模型用于预测
         model = Ridge(alpha=self.ridge_alpha)
         model.fit(X, y)
 
-        # 3. 预测未来N步
+        # 4. 预测未来N步
         future_steps = np.arange(n + 1, n + self.prediction_steps + 1).reshape(-1, 1)
         future_ma = np.array([self._moving_average(memories, 7)[-1]] * self.prediction_steps)
         future_slopes = np.array([slopes[-1]] * self.prediction_steps)
@@ -287,16 +383,17 @@ class MemoryAnalysisService:
         X_future = np.column_stack([future_steps, future_ma, future_slopes, future_stds, future_recent])
         predictions = model.predict(X_future)
 
-        # 4. 计算推荐阈值
-        max_memory = max(memories)
-        predicted_max = max(predictions) if len(predictions) > 0 else max_memory
-        actual_max = max(max_memory, predicted_max)
+        # 5. 计算推荐阈值
+        predicted_future_max = max(predictions) if len(predictions) > 0 else actual_max
+        actual_max = max(actual_max, predicted_future_max)
 
         # 根据趋势动态调整安全边际
         margin = self.safety_margin.get(trend_status, self.safety_margin['stable'])
         recommended = int(actual_max * (1 + margin / 100))
 
-        return max(recommended, int(max_memory * 1.05))
+        result = max(recommended, int(max(memories) * 1.05))
+
+        return result, evaluation_result
 
     def _moving_average(self, data, window):
         """计算移动平均"""

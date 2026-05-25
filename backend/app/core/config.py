@@ -101,7 +101,9 @@ class Config:
         'trend_threshold': {          # 趋势判断阈值(MB/小时)
             'leak': 1.0,              # 超过此值疑似泄漏
             'down': -1.0,             # 低于此值疑似下降
-        }
+        },
+        'test_size_ratio': 0.2,      # 测试集比例
+        'enable_evaluation': True,    # 是否启用评估
     }
 
 

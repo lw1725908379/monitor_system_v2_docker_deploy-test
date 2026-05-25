@@ -265,6 +265,47 @@ class DatabaseManager:
                 )
             ''')
 
+            # 13. 模型评估记录表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS model_evaluations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_ip TEXT NOT NULL,
+                    process_name TEXT NOT NULL,
+                    evaluation_date TEXT NOT NULL,
+                    data_points INTEGER NOT NULL,
+                    train_size INTEGER NOT NULL,
+                    test_size INTEGER NOT NULL,
+                    r2_score REAL,
+                    mae REAL,
+                    rmse REAL,
+                    mape REAL,
+                    max_ae REAL,
+                    predicted_trend TEXT,
+                    actual_trend TEXT,
+                    trend_correct BOOLEAN,
+                    recommended_memory INTEGER,
+                    predicted_max REAL,
+                    actual_max REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(device_ip, process_name, evaluation_date)
+                )
+            ''')
+
+            # 14. 预测误差记录表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS prediction_errors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_ip TEXT NOT NULL,
+                    process_name TEXT NOT NULL,
+                    prediction_date TEXT NOT NULL,
+                    check_date TEXT NOT NULL,
+                    predicted_value REAL NOT NULL,
+                    actual_value REAL NOT NULL,
+                    error_pct REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
             conn.commit()
         except Exception as e:
             logger.error(f"数据库初始化失败: {e}")
@@ -848,3 +889,110 @@ class DatabaseManager:
                 SET current_memory=?, memory_usage_percent=?, status=?, alert_triggered=?, last_check_time=datetime('now', 'localtime')
                 WHERE id = ?
             ''', (current_mem, mem_pct, status, alert, id))
+
+    # =======================================================
+    # 业务方法：模型评估
+    # =======================================================
+
+    def save_model_evaluation(self, device_ip, process_name, evaluation_date, data_points, train_size,
+                            test_size, r2_score, mae, rmse, mape, max_ae, predicted_trend, actual_trend,
+                            trend_correct, recommended_memory, predicted_max, actual_max):
+        """保存模型评估结果"""
+        self.execute_command("""
+            INSERT OR REPLACE INTO model_evaluations
+            (device_ip, process_name, evaluation_date, data_points, train_size, test_size,
+             r2_score, mae, rmse, mape, max_ae, predicted_trend, actual_trend,
+             trend_correct, recommended_memory, predicted_max, actual_max)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (device_ip, process_name, evaluation_date, data_points, train_size, test_size,
+              r2_score, mae, rmse, mape, max_ae, predicted_trend, actual_trend,
+              trend_correct, recommended_memory, predicted_max, actual_max))
+
+    def get_model_evaluations(self, device_ip=None, process_name=None, days=30):
+        """获取模型评估历史"""
+        sql = """SELECT * FROM model_evaluations WHERE evaluation_date >= datetime('now', ?, 'localtime')"""
+        params = [f"-{days} days"]
+        if device_ip:
+            sql += " AND device_ip = ?"
+            params.append(device_ip)
+        if process_name:
+            sql += " AND process_name = ?"
+            params.append(process_name)
+        sql += " ORDER BY evaluation_date DESC"
+        return [dict(row) for row in self.execute_query(sql, tuple(params))]
+
+    def get_model_evaluation_summary(self, days=30):
+        """获取模型评估概览统计"""
+        rows = self.execute_query("""
+            SELECT
+                COUNT(*) as total,
+                AVG(r2_score) as avg_r2,
+                AVG(mae) as avg_mae,
+                AVG(rmse) as avg_rmse,
+                AVG(mape) as avg_mape,
+                AVG(CASE WHEN trend_correct = 1 THEN 100.0 ELSE 0.0 END) as trend_accuracy,
+                SUM(CASE WHEN r2_score >= 0.7 THEN 1 ELSE 0 END) as good_count,
+                SUM(CASE WHEN r2_score >= 0.5 AND r2_score < 0.7 THEN 1 ELSE 0 END) as normal_count,
+                SUM(CASE WHEN r2_score < 0.5 OR r2_score IS NULL THEN 1 ELSE 0 END) as poor_count
+            FROM model_evaluations
+            WHERE evaluation_date >= datetime('now', ?, 'localtime')
+        """, (f"-{days} days",))
+        if rows and rows[0]:
+            row = rows[0]
+            return {
+                'total': row[0] or 0,
+                'avg_r2': round(row[1], 4) if row[1] else 0,
+                'avg_mae': round(row[2], 2) if row[2] else 0,
+                'avg_rmse': round(row[3], 2) if row[3] else 0,
+                'avg_mape': round(row[4], 2) if row[4] else 0,
+                'trend_accuracy': round(row[5], 1) if row[5] else 0,
+                'good_count': row[6] or 0,
+                'normal_count': row[7] or 0,
+                'poor_count': row[8] or 0
+            }
+        return {'total': 0, 'avg_r2': 0, 'avg_mae': 0, 'avg_rmse': 0, 'avg_mape': 0, 'trend_accuracy': 0}
+
+    def get_model_evaluation_trend(self, days=30):
+        """获取评估趋势数据（用于图表）"""
+        rows = self.execute_query("""
+            SELECT
+                DATE(evaluation_date) as date,
+                AVG(r2_score) as avg_r2,
+                AVG(mae) as avg_mae,
+                AVG(mape) as avg_mape
+            FROM model_evaluations
+            WHERE evaluation_date >= datetime('now', ?, 'localtime')
+            GROUP BY DATE(evaluation_date)
+            ORDER BY date ASC
+        """, (f"-{days} days",))
+        return [
+            {
+                'date': row[0],
+                'avg_r2': round(row[1], 4) if row[1] else 0,
+                'avg_mae': round(row[2], 2) if row[2] else 0,
+                'avg_mape': round(row[3], 2) if row[3] else 0
+            }
+            for row in rows
+        ]
+
+    def save_prediction_error(self, device_ip, process_name, prediction_date, check_date, predicted_value, actual_value):
+        """保存预测误差"""
+        error_pct = abs(predicted_value - actual_value) / actual_value * 100 if actual_value > 0 else 0
+        self.execute_command("""
+            INSERT INTO prediction_errors
+            (device_ip, process_name, prediction_date, check_date, predicted_value, actual_value, error_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (device_ip, process_name, prediction_date, check_date, predicted_value, actual_value, error_pct))
+
+    def get_prediction_errors(self, device_ip=None, process_name=None, days=30):
+        """获取预测误差记录"""
+        sql = """SELECT * FROM prediction_errors WHERE check_date >= datetime('now', ?, 'localtime')"""
+        params = [f"-{days} days"]
+        if device_ip:
+            sql += " AND device_ip = ?"
+            params.append(device_ip)
+        if process_name:
+            sql += " AND process_name = ?"
+            params.append(process_name)
+        sql += " ORDER BY check_date DESC"
+        return [dict(row) for row in self.execute_query(sql, tuple(params))]

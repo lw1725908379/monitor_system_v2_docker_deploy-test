@@ -10,6 +10,7 @@ from backend.app.controllers.report_controller import report_bp
 from backend.app.controllers.temperature_test_controller import temp_test_bp
 from backend.app.controllers.memory_analysis_controller import memory_analysis_bp
 from backend.app.controllers.backup_controller import backup_bp
+from backend.app.controllers.model_evaluation_controller import model_evaluation_bp
 
 
 def create_app():
@@ -41,6 +42,7 @@ def create_app():
     app.register_blueprint(temp_test_bp)
     app.register_blueprint(memory_analysis_bp)
     app.register_blueprint(backup_bp)
+    app.register_blueprint(model_evaluation_bp)
 
     # 3. 启动调度器
     start_scheduler()
