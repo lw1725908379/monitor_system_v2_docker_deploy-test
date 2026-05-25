@@ -1,33 +1,33 @@
 @echo off
 chcp 65001 >nul
-title MonitorSystem V1.2 - 卸载开机自启
+title MonitorSystem V1.3 - Uninstall Auto-Start
 
 echo ========================================
-echo   MonitorSystem V1.2 - 卸载开机自启
+echo   MonitorSystem V1.3 - Uninstall Auto-Start
 echo ========================================
 
-REM 检查计划任务是否存在
+REM Check if task exists
 schtasks /Query /TN "MonitorSystem_AutoStart" >nul 2>&1
 if errorlevel 1 (
-    echo [提示] 开机自启任务未安装，无需卸载
+    echo [INFO] Auto-start not installed, nothing to uninstall
     pause
     exit /b 0
 )
 
-REM 删除计划任务
-echo [信息] 正在删除计划任务...
+REM Delete scheduled task
+echo [INFO] Deleting scheduled task...
 schtasks /Delete /TN "MonitorSystem_AutoStart" /F >nul 2>&1
 
 if errorlevel 1 (
-    echo [错误] 删除计划任务失败
-    echo 请以管理员身份运行此脚本
+    echo [ERROR] Failed to delete task
+    echo Please run as Administrator
     pause
     exit /b 1
 )
 
 echo.
 echo ========================================
-echo   开机自启已卸载!
+echo   Auto-Start Uninstalled!
 echo ========================================
 echo.
 pause
