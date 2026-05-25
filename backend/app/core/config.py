@@ -1,6 +1,14 @@
 import os
 
 
+def _calc_optimal_workers():
+    """根据CPU核心数计算最优并发数（保守方案）
+    SSH是网络I/O密集型，取 CPU核心数 × 2，上限30
+    """
+    cpu_count = os.cpu_count() or 4
+    return min(cpu_count * 2, 30)
+
+
 class Config:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,10 +35,9 @@ class Config:
         'rx_rate_threshold': 5120,    # 接收速率告警阈值 KB/s (默认5MB/s)
         'packet_loss_threshold': 1,   # 丢包率告警阈值 (%)
         'latency_threshold': 100,     # 延迟告警阈值 (ms)
-        # 并发配置
-        'check_workers': 20,          # 设备采集并发数
-        'ssh_command_workers': 5,     # 单设备SSH命令并发数
-        'ssh_retry_times': 3,        # SSH重试次数
+        # 并发配置（保守方案：根据CPU核心数自适应）
+        'check_workers': _calc_optimal_workers(),          # 设备采集并发数
+        'ssh_command_workers': max(3, _calc_optimal_workers() // 4),  # 单设备SSH命令并发数
     }
 
     # ================= 3. SSH 连接配置 =================
