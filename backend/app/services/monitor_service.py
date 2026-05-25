@@ -1,5 +1,6 @@
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from backend.app.repositories.device_repository import DeviceRepository
 from backend.app.core.ssh_client import SSHClient
 from backend.app.core.config import Config
@@ -10,14 +11,30 @@ from backend.shared.database import DatabaseManager
 
 class MonitorService:
     _alert_history = {}
+    _alert_lock = threading.Lock()
+
     def __init__(self):
         self.repo = DeviceRepository()
+        self.max_workers = Config.MONITOR_CONFIG.get('check_workers', 20)
+        self.ssh_workers = Config.MONITOR_CONFIG.get('ssh_command_workers', 5)
 
     def check_all_devices_async(self):
-        """触发所有设备的异步检查"""
+        """触发所有设备的异步检查（使用线程池）"""
         devices = self.repo.get_all()
-        for dev in devices:
-            threading.Thread(target=self.check_single_device, args=(dev['ip'],)).start()
+        if not devices:
+            return
+
+        ips = [dev['ip'] for dev in devices]
+        logger.info(f"开始并发检查 {len(ips)} 台设备，并发数: {self.max_workers}")
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self.check_single_device, ip): ip for ip in ips}
+            for future in as_completed(futures):
+                ip = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"检查设备 {ip} 失败: {e}")
 
     def check_single_device(self, ip):
         """检查单台设备的主逻辑（含风险进程重启检测）"""
@@ -50,14 +67,23 @@ class MonitorService:
                 except Exception as e:
                     dev_log.error(f"获取设备详情失败: {e}")
 
-                mem_data = ssh.check_memory(Config.MONITOR_CONFIG['memory_threshold'])
-                cpu_val = ssh.get_cpu_usage()
-                core_files = ssh.check_core_files(Config.MONITOR_CONFIG['core_dump_path'])
-                thermal_zones = ssh.get_thermal_zones()
-
-                # ========== 网络监控 ==========
+                # 并行执行独立SSH命令（使用线程池）
+                threshold = Config.MONITOR_CONFIG['memory_threshold']
+                core_path = Config.MONITOR_CONFIG['core_dump_path']
                 network_interface = Config.MONITOR_CONFIG.get('network_interface', 'eth0')
-                net_data = ssh.get_network_stats(network_interface)
+
+                with ThreadPoolExecutor(max_workers=self.ssh_workers) as executor:
+                    future_mem = executor.submit(ssh.check_memory, threshold)
+                    future_cpu = executor.submit(ssh.get_cpu_usage)
+                    future_core = executor.submit(ssh.check_core_files, core_path)
+                    future_thermal = executor.submit(ssh.get_thermal_zones)
+                    future_net = executor.submit(ssh.get_network_stats, network_interface)
+
+                    mem_data = future_mem.result()
+                    cpu_val = future_cpu.result()
+                    core_files = future_core.result()
+                    thermal_zones = future_thermal.result()
+                    net_data = future_net.result()
 
                 # 计算流量速率（需要与上次数据对比）
                 if net_data:
@@ -269,21 +295,22 @@ class MonitorService:
 
     def _should_send(self, key, cooldown=None):
         """
-        检查是否应该发送告警 (冷却机制)
+        检查是否应该发送告警 (冷却机制，线程安全)
         :param key: 告警唯一标识 (IP + 类型)
         :param cooldown: 自定义冷却时间(秒)，默认使用全局配置
         """
         if cooldown is None:
             cooldown = getattr(Config, 'ALERT_COOLDOWN', 3600)  # 默认1小时
 
-        last_time = self._alert_history.get(key, 0)
-        now = time.time()
+        with self._alert_lock:
+            last_time = self._alert_history.get(key, 0)
+            now = time.time()
 
-        if now - last_time > cooldown:
-            # 超过冷却时间，允许发送，并更新时间
-            self._alert_history[key] = now
-            return True
-        else:
-            # 在冷却期内，拦截（不打印日志）
-            # logger.debug(f"告警被拦截(冷却中): {key}")
-            return False
+            if now - last_time > cooldown:
+                # 超过冷却时间，允许发送，并更新时间
+                self._alert_history[key] = now
+                return True
+            else:
+                # 在冷却期内，拦截（不打印日志）
+                # logger.debug(f"告警被拦截(冷却中): {key}")
+                return False

@@ -27,6 +27,10 @@ class Config:
         'rx_rate_threshold': 5120,    # 接收速率告警阈值 KB/s (默认5MB/s)
         'packet_loss_threshold': 1,   # 丢包率告警阈值 (%)
         'latency_threshold': 100,     # 延迟告警阈值 (ms)
+        # 并发配置
+        'check_workers': 20,          # 设备采集并发数
+        'ssh_command_workers': 5,     # 单设备SSH命令并发数
+        'ssh_retry_times': 3,        # SSH重试次数
     }
 
     # ================= 3. SSH 连接配置 =================
