@@ -3,3 +3,5 @@ waitress
 paramiko
 apscheduler
 psutil
+numpy
+scikit-learn

@@ -76,6 +76,23 @@ class Config:
         'enabled': True,              # 是否启用自动清理
     }
 
+    # ================= 6. ML模型配置 =================
+    ML_MODEL_CONFIG = {
+        'ridge_alpha': 1.0,           # Ridge回归正则化参数
+        'analysis_days': 7,           # 分析历史天数
+        'prediction_steps': 120,     # 预测步数（1小时=120步×30秒）
+        'min_data_points': 50,       # 最少数据点数量
+        'safety_margin': {           # 安全边际(%)
+            'stable': 5,              # 稳定趋势
+            'up': 10,                 # 上升趋势
+            'leak': 15,               # 泄漏趋势
+        },
+        'trend_threshold': {          # 趋势判断阈值(MB/小时)
+            'leak': 1.0,              # 超过此值疑似泄漏
+            'down': -1.0,             # 低于此值疑似下降
+        }
+    }
+
 
 if not os.path.exists(Config.STORAGE_DIR):
     os.makedirs(Config.STORAGE_DIR, exist_ok=True)

@@ -1,7 +1,9 @@
 import json
 import logging
 import statistics
+import numpy as np
 from datetime import datetime, timedelta
+from sklearn.linear_model import Ridge
 from backend.shared.database import DatabaseManager
 from backend.app.core.config import Config
 
@@ -14,10 +16,14 @@ class MemoryAnalysisService:
     def __init__(self, days=7):
         self.db = DatabaseManager(Config.DB_PATH)
         self.days = days
-
-        # 趋势判断阈值（可配置）
-        self.LEAK_THRESHOLD = 1.0  # MB/小时，增长超过此值疑似泄漏
-        self.DOWN_THRESHOLD = -1.0  # MB/小时，下降超过此值
+        ml_config = Config.ML_MODEL_CONFIG
+        self.ridge_alpha = ml_config.get('ridge_alpha', 1.0)
+        self.prediction_steps = ml_config.get('prediction_steps', 120)
+        self.min_data_points = ml_config.get('min_data_points', 50)
+        self.safety_margin = ml_config.get('safety_margin', {'stable': 5, 'up': 10, 'leak': 15})
+        trend_cfg = ml_config.get('trend_threshold', {})
+        self.LEAK_THRESHOLD = trend_cfg.get('leak', 1.0)
+        self.DOWN_THRESHOLD = trend_cfg.get('down', -1.0)
 
     def run_analysis(self):
         """执行内存分析主流程"""
@@ -174,10 +180,8 @@ class MemoryAnalysisService:
             else:
                 trend_status = 'stable'
 
-            # 4. 推荐值计算
-            recommended_memory = int(p95_memory * 1.2)
-            if recommended_memory < max_memory:
-                recommended_memory = int(max_memory * 1.1)
+            # 4. 推荐值计算 - Ridge回归模型预测
+            recommended_memory = self._calculate_recommended_with_ridge(memory_data, trend_status)
 
             # 5. 告警消息
             alert_message = None
@@ -243,3 +247,84 @@ class MemoryAnalysisService:
 
         slope = (n * sum_xy - sum_x * sum_y) / denominator
         return slope
+
+    def _calculate_recommended_with_ridge(self, memory_data, trend_status):
+        """使用Ridge回归模型预测推荐阈值"""
+        if len(memory_data) < self.min_data_points:
+            # 数据不足，使用简单统计方法
+            memories = [d['memory_mb'] for d in memory_data]
+            p95 = self._percentile(memories, 95)
+            max_mem = max(memories)
+            return int(max(p95 * 1.2, max_mem * 1.1))
+
+        # 1. 构建特征矩阵
+        memories = [d['memory_mb'] for d in memory_data]
+        n = len(memories)
+
+        # 特征: 时间步、移动平均、斜率、波动性、最近增长
+        time_steps = np.arange(1, n + 1).reshape(-1, 1)
+        ma = self._moving_average(memories, 7)
+        slopes = np.array([self._calculate_local_slope(memories, i) for i in range(n)])
+        stds = np.array([self._calculate_local_std(memories, i) for i in range(n)])
+        recent_growth = np.array([memories[i] - memories[0] for i in range(n)])
+
+        # 构建特征矩阵
+        X = np.column_stack([time_steps, ma, slopes, stds, recent_growth])
+        y = np.array(memories)
+
+        # 2. 训练Ridge回归模型
+        model = Ridge(alpha=self.ridge_alpha)
+        model.fit(X, y)
+
+        # 3. 预测未来N步
+        future_steps = np.arange(n + 1, n + self.prediction_steps + 1).reshape(-1, 1)
+        future_ma = np.array([self._moving_average(memories, 7)[-1]] * self.prediction_steps)
+        future_slopes = np.array([slopes[-1]] * self.prediction_steps)
+        future_stds = np.array([stds[-1]] * self.prediction_steps)
+        recent_mem = memories[-1] - memories[0]
+        future_recent = np.array([recent_mem] * self.prediction_steps)
+
+        X_future = np.column_stack([future_steps, future_ma, future_slopes, future_stds, future_recent])
+        predictions = model.predict(X_future)
+
+        # 4. 计算推荐阈值
+        max_memory = max(memories)
+        predicted_max = max(predictions) if len(predictions) > 0 else max_memory
+        actual_max = max(max_memory, predicted_max)
+
+        # 根据趋势动态调整安全边际
+        margin = self.safety_margin.get(trend_status, self.safety_margin['stable'])
+        recommended = int(actual_max * (1 + margin / 100))
+
+        return max(recommended, int(max_memory * 1.05))
+
+    def _moving_average(self, data, window):
+        """计算移动平均"""
+        if len(data) < window:
+            return np.array([np.mean(data)] * len(data))
+        result = []
+        for i in range(len(data)):
+            start = max(0, i - window + 1)
+            result.append(np.mean(data[start:i + 1]))
+        return np.array(result)
+
+    def _calculate_local_slope(self, data, idx):
+        """计算局部斜率"""
+        window = min(10, idx + 1)
+        if window < 2:
+            return 0
+        start = max(0, idx - window + 1)
+        x = np.arange(window)
+        y = np.array(data[start:idx + 1])
+        if len(x) < 2:
+            return 0
+        return np.polyfit(x, y, 1)[0]
+
+    def _calculate_local_std(self, data, idx):
+        """计算局部标准差"""
+        window = min(10, idx + 1)
+        start = max(0, idx - window + 1)
+        subset = data[start:idx + 1]
+        if len(subset) < 2:
+            return 0
+        return np.std(subset)
