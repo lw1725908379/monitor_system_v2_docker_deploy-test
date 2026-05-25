@@ -1,4 +1,4 @@
-# MonitorSystem V1.2
+# MonitorSystem V1.3
 
 设备监控系统，用于远程监控 Linux 嵌入式设备。
 
@@ -7,7 +7,7 @@
 - **设备监控**：CPU、内存、进程、温度、网络监控
 - **告警管理**：多种告警类型，支持邮件通知
 - **温度测试**：支持常温基准测试和高温压力测试
-- **内存分析**：趋势分析、泄漏检测、统计报表
+- **内存分析**：趋势分析、泄漏检测、Ridge回归ML预测、统计报表
 - **自动清理**：自动清理离线设备（超过3天）
 - **开机自启**：支持 Windows 计划任务开机自动运行
 
@@ -20,6 +20,7 @@
 | 数据库 | SQLite (WAL模式) |
 | 远程连接 | Paramiko (SSH) |
 | 任务调度 | APScheduler |
+| 机器学习 | NumPy + scikit-learn (Ridge回归) |
 
 ## 部署指南（Windows）
 
@@ -147,6 +148,26 @@ EMAIL_CONFIG = {
 }
 ```
 
+### ML模型配置 (Ridge回归)
+
+```python
+ML_MODEL_CONFIG = {
+    'ridge_alpha': 1.0,           # 正则化参数
+    'analysis_days': 7,           # 分析历史天数
+    'prediction_steps': 120,      # 预测步数(30秒/步，120=1小时)
+    'min_data_points': 50,        # 最少数据点
+    'safety_margin': {            # 安全边际(%)
+        'stable': 5,              # 稳定趋势
+        'up': 10,                 # 上升趋势
+        'leak': 15,               # 泄漏趋势
+    },
+    'trend_threshold': {           # 趋势判断(MB/小时)
+        'leak': 1.0,
+        'down': -1.0,
+    }
+}
+```
+
 ## 定时任务
 
 | 任务 | 时间 | 说明 |
@@ -159,8 +180,9 @@ EMAIL_CONFIG = {
 
 ## 版本信息
 
-- **版本**：V1.2
+- **版本**：V1.3
 - **构建时间**：自动获取
+- **更新内容**：引入Ridge回归ML模型优化推荐阈值计算
 
 ## 许可证
 
