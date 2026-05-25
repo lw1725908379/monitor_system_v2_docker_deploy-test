@@ -2,14 +2,31 @@ from backend.app.repositories.device_repository import DeviceRepository
 from backend.app.core.config import Config
 from backend.app.utils.logger import logger
 import time
+import threading
 
 class DeviceService:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self):
+        if self._initialized:
+            return
         self.repo = DeviceRepository()
         # 后端缓存
         self._cache = {}
         self._cache_ttl = 5  # 缓存5秒
         self._cache_timestamp = 0
+        self._cache_hits = 0  # 缓存命中次数
+        self._cache_misses = 0  # 缓存未命中次数
+        self._initialized = True
 
     def get_all_devices_with_status(self):
         """获取所有设备状态（使用批量查询优化 + 缓存）"""
@@ -17,7 +34,10 @@ class DeviceService:
 
         # 检查缓存是否有效
         if self._cache and (current_time - self._cache_timestamp) < self._cache_ttl:
+            self._cache_hits += 1
             return self._cache
+
+        self._cache_misses += 1
 
         # 批量查询：1次获取所有设备 + 1次获取所有最新记录 = 2次查询
         devices = self.repo.get_all()
@@ -46,6 +66,16 @@ class DeviceService:
         """手动失效缓存（用于设备增删改后）"""
         self._cache = {}
         self._cache_timestamp = 0
+
+    def get_cache_stats(self):
+        """获取缓存统计信息"""
+        total = self._cache_hits + self._cache_misses
+        hit_rate = (self._cache_hits / total * 100) if total > 0 else 0
+        return {
+            'hits': self._cache_hits,
+            'misses': self._cache_misses,
+            'hit_rate': round(hit_rate, 2)
+        }
 
     def add_device(self, data):
         ip = data['ip']
